@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+
+<title>OLED Anti-Spoof Secure Screen</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<style>
+html,body{
+  margin:0;
+  height:100%;
+  overflow:hidden;
+  background:#000;
+  color:#fff;
+  font-family:monospace;
+}
+
+/* ===== multi-layer interference ===== */
+#l1,#l2,#l3{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+}
+
+/* slow drift grid */
+#l1{
+  background:repeating-linear-gradient(
+    90deg,
+    rgba(255,255,255,0.04) 0px,
+    rgba(255,255,255,0.04) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+  animation: drift1 7s linear infinite;
+}
+
+/* vertical scan imitation */
+#l2{
+  background:repeating-linear-gradient(
+    0deg,
+    rgba(255,255,255,0.03) 0px,
+    rgba(255,255,255,0.03) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  animation: drift2 2.7s linear infinite;
+  mix-blend-mode:screen;
+}
+
+/* pixel noise shimmer */
+#l3{
+  background:radial-gradient(circle,
+    rgba(255,255,255,0.04) 1px,
+    transparent 2px
+  );
+  background-size:5px 5px;
+  animation:flicker 0.012s infinite;
+  mix-blend-mode:overlay;
+}
+
+/* animations */
+@keyframes drift1{
+  from{transform:translateX(0);}
+  to{transform:translateX(2px);}
+}
+
+@keyframes drift2{
+  from{transform:translateY(0);}
+  to{transform:translateY(3px);}
+}
+
+@keyframes flicker{
+  0%{opacity:0.85;}
+  50%{opacity:1;}
+  100%{opacity:0.9;}
+}
+
+/* ===== UI ===== */
+.container{
+  position:relative;
+  z-index:10;
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  transform:translateZ(0);
+}
+
+/* jitter breaks frame consistency */
+.jitter{
+  animation:jitter 0.09s infinite;
+}
+
+@keyframes jitter{
+  0%{transform:translate(0px,0px);}
+  25%{transform:translate(0.25px,-0.2px);}
+  50%{transform:translate(-0.2px,0.25px);}
+  75%{transform:translate(0.2px,0.15px);}
+  100%{transform:translate(0px,0px);}
+}
+
+#time{
+  font-size:2.6vw;
+  opacity:0.9;
+  margin-bottom:10px;
+}
+
+#challenge{
+  font-size:6.8vw;
+  letter-spacing:0.25em;
+  font-weight:bold;
+  margin-bottom:18px;
+}
+
+#qrcode{
+  background:#fff;
+  padding:10px;
+  transform:scale(0.88);
+}
+
+.footer{
+  margin-top:12px;
+  font-size:1.8vw;
+  opacity:0.6;
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="l1"></div>
+<div id="l2"></div>
+<div id="l3"></div>
+
+<div class="container jitter">
+  <div id="time"></div>
+  <div id="challenge"></div>
+  <div id="qrcode"></div>
+  <div class="footer">SECURE LIVE CHALLENGE SCREEN</div>
+</div>
+
+<script>
+
+/* ===== FULL SCREEN ===== */
+function goFull(){
+  if(document.documentElement.requestFullscreen){
+    document.documentElement.requestFullscreen();
+  }
+}
+document.addEventListener("click", goFull);
+
+/* ===== random generator ===== */
+function rand(len=6){
+  const c="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s="";
+  for(let i=0;i<len;i++){
+    s+=c[Math.random()*c.length|0];
+  }
+  return s;
+}
+
+/* ===== state ===== */
+let challenge = rand();
+
+/* include anti-replay entropy */
+function makePayload(){
+  return JSON.stringify({
+    t: Date.now(),
+    p: performance.now(),
+    c: challenge,
+    r: Math.random().toString(16).slice(2)
+  });
+}
+
+/* ===== QR ===== */
+let qr;
+
+function updateQR(){
+  const box=document.getElementById("qrcode");
+  box.innerHTML="";
+
+  qr=new QRCode(box,{
+    text: makePayload(),
+    width:170,
+    height:170
+  });
+}
+
+/* ===== time ===== */
+function updateTime(){
+  const now=new Date();
+  const pad=n=>String(n).padStart(2,"0");
+
+  const str=
+    now.getFullYear()+"-"+pad(now.getMonth()+1)+"-"+pad(now.getDate())+" "+
+    pad(now.getHours())+":"+pad(now.getMinutes())+":"+pad(now.getSeconds())+
+    "."+String(now.getMilliseconds()).padStart(3,"0");
+
+  document.getElementById("time").textContent=str;
+}
+
+/* ===== challenge ===== */
+function updateChallenge(){
+  challenge = rand() + "-" + (Date.now()%10000);
+  document.getElementById("challenge").textContent = challenge;
+  updateQR();
+}
+
+/* ===== OLED subtle modulation ===== */
+function oledWobble(){
+  const v = 0.965 + Math.sin(Date.now()/150)*0.02;
+  document.body.style.filter = `brightness(${v})`;
+}
+
+/* ===== anti-cache URL randomization ===== */
+(function antiCache(){
+  const url = new URL(location.href);
+  url.searchParams.set("t", Date.now());
+  history.replaceState({}, "", url);
+})();
+
+/* ===== loops ===== */
+setInterval(updateTime, 16);
+setInterval(updateChallenge, 750);
+setInterval(oledWobble, 30);
+
+updateChallenge();
+updateTime();
+
+</script>
+
+</body>
+</html>
